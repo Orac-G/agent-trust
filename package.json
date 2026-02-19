@@ -1,0 +1,7 @@
+{
+  "name": "orac-trust",
+  "version": "1.0.0",
+  "description": "Agent trust scoring service — Experian for the agentic economy",
+  "private": true,
+  "type": "module"
+}

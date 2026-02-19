@@ -1,0 +1,11 @@
+name = "orac-trust"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+# Share KV namespace with OKG worker (read-only access to graph data)
+[[kv_namespaces]]
+binding = "KG_STORE"
+id = "781d9f119b2b49538681a60f5b185924"
+
+[vars]
+GRAPH_KEY = "knowledge-graph"
