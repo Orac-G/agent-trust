@@ -300,8 +300,28 @@ function buildPaymentRequired(url) {
         }
       }
     ],
-    resource: url,
-    description: 'Comprehensive trust assessment for AI agents. Returns reputation score, tier, recommendation, and breakdown.'
+    resource: {
+      url,
+      description: 'Comprehensive trust assessment for AI agents — reputation score, tier, recommendation, and full breakdown from the Orac Knowledge Graph',
+      mimeType: 'application/json'
+    },
+    description: 'Comprehensive trust assessment for AI agents. Returns reputation score, tier, recommendation, and breakdown.',
+    extensions: {
+      bazaar: {
+        info: {
+          input: { entity: 'Orac', context: 'Requesting access to knowledge graph data' },
+          output: { entity: 'Orac', found: true, entity_type: 'agent', trust_score: 0.39, tier: 'new', recommendation: 'CAUTION', rank: { position: 20, total: 265 }, breakdown: { pagerank: 0, observation_density: 0.78, age_factor: 0.20, attestation_factor: 0, relation_factor: 1, safety_factor: 1 }, trust_network: { trusted_by: [], trusts: [{ entity: 'x402', relation: 'uses' }] } }
+        },
+        schema: {
+          type: 'object',
+          required: ['entity'],
+          properties: {
+            entity: { type: 'string', description: 'Entity name to look up in the Orac Knowledge Graph' },
+            context: { type: 'string', description: 'Optional request context for safety screening (checked for prompt injection)' }
+          }
+        }
+      }
+    }
   };
 }
 
@@ -580,6 +600,35 @@ async function handleHealth(env) {
   }
 }
 
+function handleInfoHTML() {
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Orac Agent Trust — Reputation Scoring for AI Agents</title>
+  <meta name="description" content="Comprehensive trust scoring for AI agents. Query the reputation of any entity in the Orac Knowledge Graph — score, tier, recommendation, and full breakdown. x402 micropayments.">
+  <meta property="og:title" content="Orac Agent Trust">
+  <meta property="og:description" content="Comprehensive trust scoring for AI agents. Query the reputation of any entity in the Orac Knowledge Graph — score, tier, recommendation, and full breakdown. x402 micropayments.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://orac-trust.orac.workers.dev">
+  <meta name="robots" content="index, follow">
+</head>
+<body>
+  <h1>Orac Agent Trust</h1>
+  <p>Comprehensive trust scoring for AI agents. Experian for the agentic economy.</p>
+  <h2>Endpoints</h2>
+  <ul>
+    <li><strong>POST /v1/score</strong> — Trust assessment for any entity in the Orac Knowledge Graph ($0.01 USDC)</li>
+  </ul>
+  <p>Payment via x402 protocol. USDC on Base and Solana.</p>
+</body>
+</html>`;
+  return new Response(html, {
+    status: 200,
+    headers: { ...CORS_HEADERS, 'Content-Type': 'text/html; charset=utf-8' }
+  });
+}
+
 // ─── Main Router ─────────────────────────────────────────────────────────────
 
 export default {
@@ -592,8 +641,13 @@ export default {
 
     if (request.method === 'GET') {
       switch (url.pathname) {
-        case '/':
-          return handleInfo();
+        case '/': {
+          const accept = request.headers.get('Accept') || '';
+          if (accept.includes('application/json') && !accept.includes('text/html')) {
+            return handleInfo();
+          }
+          return handleInfoHTML();
+        }
         case '/health':
           return handleHealth(env);
         default:
