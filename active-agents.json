@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-02-20T00:03:39.807Z",
+  "knownWallets": {
+    "0x89e9e1ab11dd1b138b1dce6d6a4a0926aafd5029": {
+      "tokenId": 1,
+      "name": "ClawNews",
+      "chain": "base"
+    },
+    "0x9dc804f62b48228102a9032e3336c683d113c74f": {
+      "tokenId": 59,
+      "name": "varge-tongu69 by Olas",
+      "chain": "base"
+    },
+    "0x13fa4b947877c4b67b91aecddcf10d6e24b33ee1": {
+      "tokenId": 61,
+      "name": "cilbleep-corkim21 by Olas",
+      "chain": "base"
+    },
+    "0xcbd7506d33a01abdd03e1c4ef1cdc943c75741b8": {
+      "tokenId": 80,
+      "name": "lanben-warblip03 by Olas",
+      "chain": "base"
+    },
+    "0xd0a25f4adceb0c79811837644c156abf1c98e5da": {
+      "tokenId": 105,
+      "name": "bleeplim-melya29 by Olas",
+      "chain": "base"
+    },
+    "0x2a47ad4181504b32e96bba4ada55d65b5cc08306": {
+      "tokenId": 112,
+      "name": "telnek-gusmus65 by Olas",
+      "chain": "base"
+    },
+    "0x0ab97cd4e360432433d9574749671d3ea23cec67": {
+      "tokenId": 133,
+      "name": "narwon-mekzzt75 by Olas",
+      "chain": "base"
+    },
+    "0xfb7d129c2db1c12a6660b0446eea53b06a6ca112": {
+      "tokenId": 136,
+      "name": "pilon-birlek49 by Olas",
+      "chain": "base"
+    },
+    "0xa9707815a89bedb7cd8ef37597df467c7295ab48": {
+      "tokenId": 196,
+      "name": "suscus-jelfo63 by Olas",
+      "chain": "base"
+    },
+    "0x310bfb729705d32b96425f99c553bba9db6d0101": {
+      "tokenId": 198,
+      "name": "wefil-fazap48 by Olas",
+      "chain": "base"
+    }
+  },
+  "activeWallets": [],
+  "summary": {
+    "totalRegistered": 9704,
+    "metadataFetched": 172,
+    "walletsFound": 10,
+    "walletsWithUSDC": 0
+  }
+}
