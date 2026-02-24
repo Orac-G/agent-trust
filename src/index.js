@@ -19,7 +19,7 @@ const ORAC_SOL_WALLET = '3vD1Rt5qMz4vZR8jGND8n9YnVNvPBvX8tyTrWzZ3TMSb';
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const USDC_SOLANA = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const DEXTER_SOL_FEE_PAYER = 'DEXVS3su4dZQWTvvPnLDJLRK1CeeKG6K3QqdzthgAkNV';
-const FACILITATOR_URL = 'https://x402.dexter.cash';
+const FACILITATOR_URL = 'https://pay.openfacilitator.io';
 
 const PRICE = 10000; // $0.01 USDC (6 decimals)
 
