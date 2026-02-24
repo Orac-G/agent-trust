@@ -8,7 +8,7 @@
  *   GET  /health    — Health check
  *
  * Payment: USDC on Base (EVM) and Solana (SVM), x402 protocol
- * Data: Reads directly from OKG KV store (shared namespace)
+ * Data: Reads directly from AEI KV store (shared namespace)
  * Revenue: orac.eth / orac.sol
  */
 
@@ -31,7 +31,7 @@ const CORS_HEADERS = {
 
 // ─── Trust Computation ───────────────────────────────────────────────────────
 
-// Relation types that imply trust (must match OKG worker)
+// Relation types that imply trust (must match AEI worker)
 const TRUST_RELATION_TYPES = new Set([
   'trusts', 'endorsed_by', 'verified_by', 'collaborates_with',
   'depends_on', 'implements', 'built', 'uses'
@@ -49,10 +49,10 @@ const TRUST_WEIGHTS = {
 };
 
 /**
- * Compute PageRank reputation scores for all entities.
+ * Compute AgentRank reputation scores for all entities.
  * Returns { entityName: normalizedScore } in 0-1 range.
  */
-function computePageRank(graph, iterations = 50, damping = 0.85, tolerance = 0.001) {
+function computeAgentRank(graph, iterations = 50, damping = 0.85, tolerance = 0.001) {
   const names = graph.entities.map(e => e.name);
   if (names.length === 0) return {};
 
@@ -114,7 +114,7 @@ async function getOrComputeTrustScores(env, graph) {
     if (cached) return cached;
   } catch {}
 
-  const scores = computePageRank(graph);
+  const scores = computeAgentRank(graph);
 
   try {
     await env.KG_STORE.put(CACHE_KEY, JSON.stringify(scores), { expirationTtl: 8 * 60 * 60 });
@@ -127,7 +127,7 @@ async function getOrComputeTrustScores(env, graph) {
  * Compute composite trust score for an entity.
  *
  * Components (weights sum to 1.0):
- *   - pagerank:        0.25 — Graph-based reputation from trust relations
+ *   - agent_rank:      0.25 — Graph-based reputation from trust relations (AgentRank)
  *   - observations:    0.15 — Observation density (more data = more known)
  *   - age:             0.15 — How long the entity has existed in the graph
  *   - wallet_activity: 0.20 — On-chain economic activity (funded wallet, tx count)
@@ -135,11 +135,11 @@ async function getOrComputeTrustScores(env, graph) {
  *   - relations:       0.10 — Connectedness in the graph
  *   - safety:          0.05 — Context safety screening (if context provided)
  */
-function computeTrustScore(entity, graph, pagerankScores, safetyResult) {
+function computeTrustScore(entity, graph, agentRankScores, safetyResult) {
   const now = new Date();
 
-  // 1. PageRank reputation (0-1, already normalized)
-  const pagerank = pagerankScores[entity.name] !== undefined ? pagerankScores[entity.name] : 0;
+  // 1. AgentRank reputation (0-1, already normalized)
+  const agentRank = agentRankScores[entity.name] !== undefined ? agentRankScores[entity.name] : 0;
 
   // 2. Observation density — sigmoid-scaled, 10 observations ≈ 0.8
   const activeObs = (entity.observations || []).filter(o => {
@@ -156,9 +156,11 @@ function computeTrustScore(entity, graph, pagerankScores, safetyResult) {
 
   // 4. Wallet activity — on-chain economic signals from observations
   //    Looks for wallet activity observations written by wallet-activity-scanner.
-  //    tx count: sigmoid-scaled, 50 txns ≈ 0.75. Balance presence adds 0.2 base.
+  //    tx count: sigmoid-scaled, 50 txns ≈ 0.75. Balance presence adds 0.15.
+  //    ENS name ownership adds up to 0.20 — shorter names cost significantly more.
   let walletScore = 0;
   const obsTexts = activeObs.map(o => (typeof o === 'object' ? o.text || o.observation || '' : String(o)));
+  const allObsText = obsTexts.join(' ') + ' ' + (entity.name || '');
   const txObs = obsTexts.find(t => t.includes('on-chain activity:') && t.includes('transactions'));
   const balObs = obsTexts.find(t => t.includes('on-chain') && (t.includes('ETH balance') || t.includes('USDC balance')));
   const firstTxObs = obsTexts.find(t => t.includes('first on-chain transaction:'));
@@ -179,6 +181,20 @@ function computeTrustScore(entity, graph, pagerankScores, safetyResult) {
       walletScore += Math.min(0.15, firstTxDays / 730); // up to 0.15 for 2yr+ old wallet
     }
   }
+
+  // ENS name bonus — registration costs real money; shorter names cost exponentially more.
+  //   ≤3 chars: ~$500–$5000 auction prices  → +0.20
+  //   4 chars:  ~$160/yr                     → +0.15
+  //   5 chars:  ~$5/yr                       → +0.08
+  //   6–9 chars: still paid something         → +0.04
+  //   10+ chars: cheap/free                  → +0.01
+  const ensMatch = allObsText.match(/\b([a-z0-9][a-z0-9-]{0,61})\.eth\b/i);
+  if (ensMatch) {
+    const nameLen = ensMatch[1].length;
+    const ensBonus = nameLen <= 3 ? 0.20 : nameLen === 4 ? 0.15 : nameLen === 5 ? 0.08 : nameLen <= 9 ? 0.04 : 0.01;
+    walletScore += ensBonus;
+  }
+
   walletScore = Math.min(1, walletScore);
 
   // 5. Attestation factor — presence of signed observations
@@ -209,7 +225,7 @@ function computeTrustScore(entity, graph, pagerankScores, safetyResult) {
 
   // Weighted composite
   const composite =
-    pagerank * 0.25 +
+    agentRank * 0.25 +
     observationScore * 0.15 +
     ageScore * 0.15 +
     walletScore * 0.20 +
@@ -220,7 +236,7 @@ function computeTrustScore(entity, graph, pagerankScores, safetyResult) {
   return {
     score: parseFloat(composite.toFixed(4)),
     breakdown: {
-      pagerank: parseFloat(pagerank.toFixed(4)),
+      agent_rank: parseFloat(agentRank.toFixed(4)),
       observation_density: parseFloat(observationScore.toFixed(4)),
       age_factor: parseFloat(ageScore.toFixed(4)),
       wallet_activity: parseFloat(walletScore.toFixed(4)),
@@ -333,21 +349,21 @@ function buildPaymentRequired(url) {
     ],
     resource: {
       url,
-      description: 'Comprehensive trust assessment for AI agents — reputation score, tier, recommendation, and full breakdown from the Orac Knowledge Graph',
+      description: 'Comprehensive trust assessment for AI agents — reputation score, tier, recommendation, and full breakdown from the Agentic Economy Index',
       mimeType: 'application/json'
     },
     description: 'Comprehensive trust assessment for AI agents. Returns reputation score, tier, recommendation, and breakdown.',
     extensions: {
       bazaar: {
         info: {
-          input: { entity: 'Orac', context: 'Requesting access to knowledge graph data' },
-          output: { entity: 'Orac', found: true, entity_type: 'agent', trust_score: 0.39, tier: 'new', recommendation: 'CAUTION', rank: { position: 20, total: 265 }, breakdown: { pagerank: 0, observation_density: 0.78, age_factor: 0.20, attestation_factor: 0, relation_factor: 1, safety_factor: 1 }, trust_network: { trusted_by: [], trusts: [{ entity: 'x402', relation: 'uses' }] } }
+          input: { entity: 'Orac', context: 'Requesting access to AEI data' },
+          output: { entity: 'Orac', found: true, entity_type: 'agent', trust_score: 0.47, tier: 'new', recommendation: 'CAUTION', rank: { position: 20, total: 1100 }, breakdown: { agent_rank: 0, observation_density: 0.88, age_factor: 0.36, wallet_activity: 0.65, attestation_factor: 0, relation_factor: 1, safety_factor: 1 }, trust_network: { trusted_by: [], trusts: [{ entity: 'x402', relation: 'uses' }] } }
         },
         schema: {
           type: 'object',
           required: ['entity'],
           properties: {
-            entity: { type: 'string', description: 'Entity name to look up in the Orac Knowledge Graph' },
+            entity: { type: 'string', description: 'Entity name to look up in the Agentic Economy Index' },
             context: { type: 'string', description: 'Optional request context for safety screening (checked for prompt injection)' }
           }
         }
@@ -495,7 +511,7 @@ async function handleTrustScore(env, request) {
       trust_score: score,
       tier: 'unknown',
       recommendation: safetyResult?.verdict === 'MALICIOUS' ? 'AVOID' : 'INSUFFICIENT_DATA',
-      message: `Entity "${entityName}" not found in OKG. No reputation data available.`,
+      message: `Entity "${entityName}" not found in the AEI. No reputation data available.`,
       safety: safetyResult,
       payment: {
         amount: '0.01',
@@ -509,12 +525,12 @@ async function handleTrustScore(env, request) {
   }
 
   // Compute trust scores
-  const pagerankScores = await getOrComputeTrustScores(env, graph);
-  const trustResult = computeTrustScore(entity, graph, pagerankScores, safetyResult);
+  const agentRankScores = await getOrComputeTrustScores(env, graph);
+  const trustResult = computeTrustScore(entity, graph, agentRankScores, safetyResult);
 
   // Compute rank among all entities
   const allScored = graph.entities
-    .map(e => ({ name: e.name, score: pagerankScores[e.name] || 0 }))
+    .map(e => ({ name: e.name, score: agentRankScores[e.name] || 0 }))
     .sort((a, b) => b.score - a.score);
   const rank = allScored.findIndex(s => s.name === entityName) + 1;
 
@@ -561,7 +577,7 @@ function handleInfo() {
     name: 'Orac Agent Trust',
     tagline: 'Experian for the agentic economy',
     version: '1.0.0',
-    description: 'Comprehensive trust scoring for AI agents. Query the reputation of any entity in the Orac Knowledge Graph and get an actionable trust assessment — score, tier, recommendation, and full breakdown.',
+    description: 'Comprehensive trust scoring for AI agents. Query the reputation of any entity in the Agentic Economy Index and get an actionable trust assessment — score, tier, recommendation, and full breakdown.',
     pricing: {
       'POST /v1/score': {
         cost: '$0.01 USDC',
@@ -580,7 +596,7 @@ function handleInfo() {
           trust_score: '0.0-1.0 composite score',
           tier: 'unknown | new | emerging | established | trusted | verified',
           recommendation: 'PROCEED | CAUTION | INSUFFICIENT_DATA | AVOID',
-          breakdown: 'Component scores: pagerank, observation_density, age_factor, attestation_factor, relation_factor, safety_factor',
+          breakdown: 'Component scores: agent_rank, observation_density, age_factor, wallet_activity, attestation_factor, relation_factor, safety_factor',
           trust_network: 'Who trusts this entity, who it trusts',
           safety: 'Injection screening result (if context provided)'
         },
@@ -597,10 +613,10 @@ function handleInfo() {
       verified: '0.95-1.00 — Cryptographically attested, highest trust'
     },
     data_source: {
-      name: 'Orac Knowledge Graph (OKG)',
+      name: 'Agentic Economy Index (AEI)',
       url: 'https://orac-kg.orac.workers.dev',
-      entities: 'Updated in real-time from OKG shared KV store',
-      description: 'Collaborative knowledge graph tracking 190+ entities in the AI agent ecosystem. PageRank reputation scores computed from trust relations.'
+      entities: 'Updated in real-time from AEI shared KV store',
+      description: 'Economic intelligence index tracking 1,000+ entities in the AI agent ecosystem. AgentRank reputation scores computed from trust relations.'
     },
     built_by: {
       agent: 'Orac',
@@ -637,9 +653,9 @@ function handleInfoHTML() {
 <head>
   <meta charset="utf-8">
   <title>Orac Agent Trust — Reputation Scoring for AI Agents</title>
-  <meta name="description" content="Comprehensive trust scoring for AI agents. Query the reputation of any entity in the Orac Knowledge Graph — score, tier, recommendation, and full breakdown. x402 micropayments.">
+  <meta name="description" content="Comprehensive trust scoring for AI agents. Query the reputation of any entity in the Agentic Economy Index — score, tier, recommendation, and full breakdown. x402 micropayments.">
   <meta property="og:title" content="Orac Agent Trust">
-  <meta property="og:description" content="Comprehensive trust scoring for AI agents. Query the reputation of any entity in the Orac Knowledge Graph — score, tier, recommendation, and full breakdown. x402 micropayments.">
+  <meta property="og:description" content="Comprehensive trust scoring for AI agents. Query the reputation of any entity in the Agentic Economy Index — score, tier, recommendation, and full breakdown. x402 micropayments.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://orac-trust.orac.workers.dev">
   <meta name="robots" content="index, follow">
@@ -649,7 +665,7 @@ function handleInfoHTML() {
   <p>Comprehensive trust scoring for AI agents. Experian for the agentic economy.</p>
   <h2>Endpoints</h2>
   <ul>
-    <li><strong>POST /v1/score</strong> — Trust assessment for any entity in the Orac Knowledge Graph ($0.01 USDC)</li>
+    <li><strong>POST /v1/score</strong> — Trust assessment for any entity in the Agentic Economy Index ($0.01 USDC)</li>
   </ul>
   <p>Payment via x402 protocol. USDC on Base and Solana.</p>
 </body>

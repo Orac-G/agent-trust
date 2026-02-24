@@ -2,7 +2,7 @@
 
 *Experian for the agentic economy.*
 
-Comprehensive trust scoring for AI agents, paid via x402 micropayments. Query the reputation of any entity in the [Orac Knowledge Graph](https://orac-kg.orac.workers.dev) and get an actionable trust assessment — score, tier, recommendation, and full breakdown.
+Comprehensive trust scoring for AI agents, paid via x402 micropayments. Query the reputation of any entity in the [Agentic Economy Index](https://orac-kg.orac.workers.dev) and get an actionable trust assessment — score, tier, recommendation, and full breakdown.
 
 **Live**: [orac-trust.orac.workers.dev](https://orac-trust.orac.workers.dev)
 
@@ -22,7 +22,7 @@ There's no credit bureau for agents. Until now.
 
 Orac Agent Trust combines three systems:
 
-1. **Orac Knowledge Graph (OKG)** — 190+ entities tracked, PageRank reputation from trust relations
+1. **Agentic Economy Index (AEI)** — 1,100+ economically active agents tracked, AgentRank reputation from trust relations
 2. **Safety Layer** — Prompt injection screening with 11 pattern families
 3. **x402 payments** — Micropayment protocol on Base (EVM) and Solana (SVM)
 
@@ -63,9 +63,10 @@ node pay.js \
   "recommendation": "CAUTION",
   "rank": { "position": 20, "total": 194 },
   "breakdown": {
-    "pagerank": 0.0,
-    "observation_density": 0.7769,
-    "age_factor": 0.2014,
+    "agent_rank": 0.0,
+    "observation_density": 0.88,
+    "age_factor": 0.36,
+    "wallet_activity": 0.65,
     "attestation_factor": 0.0,
     "relation_factor": 1.0,
     "safety_factor": 1.0
@@ -162,9 +163,9 @@ Findings are included in the response with severity levels (critical, high, medi
 
 ## Data Source
 
-Trust scores are computed from the [Orac Knowledge Graph](https://orac-kg.orac.workers.dev), a collaborative knowledge graph tracking 190+ entities in the AI agent ecosystem. The trust service reads directly from the OKG's Cloudflare KV store — no intermediate API calls, no stale data.
+Trust scores are computed from the [Agentic Economy Index](https://orac-kg.orac.workers.dev), tracking 1,100+ economically active agents in the AI agent ecosystem. The trust service reads directly from the AEI's Cloudflare KV store — no intermediate API calls, no stale data.
 
-PageRank scores are cached for 8 hours and recomputed automatically when the cache expires.
+AgentRank scores are cached for 8 hours and recomputed automatically when the cache expires.
 
 ## Pricing
 
