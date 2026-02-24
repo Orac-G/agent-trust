@@ -127,12 +127,13 @@ async function getOrComputeTrustScores(env, graph) {
  * Compute composite trust score for an entity.
  *
  * Components (weights sum to 1.0):
- *   - pagerank:     0.30 — Graph-based reputation from trust relations
- *   - observations:  0.20 — Observation density (more data = more known)
- *   - age:          0.15 — How long the entity has existed in the graph
- *   - attestations: 0.15 — Cryptographic attestation signals
- *   - relations:    0.10 — Connectedness in the graph
- *   - safety:       0.10 — Context safety screening (if context provided)
+ *   - pagerank:        0.25 — Graph-based reputation from trust relations
+ *   - observations:    0.15 — Observation density (more data = more known)
+ *   - age:             0.15 — How long the entity has existed in the graph
+ *   - wallet_activity: 0.20 — On-chain economic activity (funded wallet, tx count)
+ *   - attestations:    0.10 — Cryptographic attestation signals
+ *   - relations:       0.10 — Connectedness in the graph
+ *   - safety:          0.05 — Context safety screening (if context provided)
  */
 function computeTrustScore(entity, graph, pagerankScores, safetyResult) {
   const now = new Date();
@@ -141,10 +142,11 @@ function computeTrustScore(entity, graph, pagerankScores, safetyResult) {
   const pagerank = pagerankScores[entity.name] !== undefined ? pagerankScores[entity.name] : 0;
 
   // 2. Observation density — sigmoid-scaled, 10 observations ≈ 0.8
-  const obsCount = (entity.observations || []).filter(o => {
+  const activeObs = (entity.observations || []).filter(o => {
     if (!o.expires_at) return true;
     return new Date(o.expires_at) > now;
-  }).length;
+  });
+  const obsCount = activeObs.length;
   const observationScore = 1 - Math.exp(-obsCount / 8);
 
   // 3. Age factor — how long in graph, sigmoid-scaled, 30 days ≈ 0.8
@@ -152,25 +154,52 @@ function computeTrustScore(entity, graph, pagerankScores, safetyResult) {
   const ageDays = Math.max(0, (now - created) / (1000 * 60 * 60 * 24));
   const ageScore = 1 - Math.exp(-ageDays / 25);
 
-  // 4. Attestation factor — presence of signed observations
+  // 4. Wallet activity — on-chain economic signals from observations
+  //    Looks for wallet activity observations written by wallet-activity-scanner.
+  //    tx count: sigmoid-scaled, 50 txns ≈ 0.75. Balance presence adds 0.2 base.
+  let walletScore = 0;
+  const obsTexts = activeObs.map(o => (typeof o === 'object' ? o.text || o.observation || '' : String(o)));
+  const txObs = obsTexts.find(t => t.includes('on-chain activity:') && t.includes('transactions'));
+  const balObs = obsTexts.find(t => t.includes('on-chain') && (t.includes('ETH balance') || t.includes('USDC balance')));
+  const firstTxObs = obsTexts.find(t => t.includes('first on-chain transaction:'));
+
+  if (txObs) {
+    const m = txObs.match(/(\d+) transactions/);
+    const txCount = m ? parseInt(m[1]) : 0;
+    walletScore += (1 - Math.exp(-txCount / 50)) * 0.7; // up to 0.70 for tx count
+  }
+  if (balObs) {
+    walletScore += 0.15; // funded wallet present
+  }
+  if (firstTxObs) {
+    // On-chain age bonus — older wallets get extra signal
+    const m = firstTxObs.match(/(\d{4}-\d{2}-\d{2})/);
+    if (m) {
+      const firstTxDays = Math.max(0, (now - new Date(m[1])) / (1000 * 60 * 60 * 24));
+      walletScore += Math.min(0.15, firstTxDays / 730); // up to 0.15 for 2yr+ old wallet
+    }
+  }
+  walletScore = Math.min(1, walletScore);
+
+  // 5. Attestation factor — presence of signed observations
   const signedObs = (entity.observations || []).filter(o =>
     o.signature && o.signature.signature_hex
   ).length;
   const attestationScore = signedObs > 0 ? Math.min(1, 0.5 + signedObs * 0.1) : 0;
 
-  // 5. Relation factor — connectedness (trust relations specifically)
+  // 6. Relation factor — connectedness in the graph
+  const totalRels = graph.relations.filter(r =>
+    r.source === entity.name || r.target === entity.name
+  ).length;
   const trustRelsIn = graph.relations.filter(r =>
     r.target === entity.name && TRUST_RELATION_TYPES.has(r.relation)
   ).length;
   const trustRelsOut = graph.relations.filter(r =>
     r.source === entity.name && TRUST_RELATION_TYPES.has(r.relation)
   ).length;
-  const totalRels = graph.relations.filter(r =>
-    r.source === entity.name || r.target === entity.name
-  ).length;
   const relationScore = Math.min(1, totalRels / 10);
 
-  // 6. Safety factor — from injection screening (1.0 if no context, penalized if flagged)
+  // 7. Safety factor — from injection screening (1.0 if no context, penalized if flagged)
   let safetyScore = 1.0;
   if (safetyResult) {
     if (safetyResult.verdict === 'MALICIOUS') safetyScore = 0;
@@ -180,12 +209,13 @@ function computeTrustScore(entity, graph, pagerankScores, safetyResult) {
 
   // Weighted composite
   const composite =
-    pagerank * 0.30 +
-    observationScore * 0.20 +
+    pagerank * 0.25 +
+    observationScore * 0.15 +
     ageScore * 0.15 +
-    attestationScore * 0.15 +
+    walletScore * 0.20 +
+    attestationScore * 0.10 +
     relationScore * 0.10 +
-    safetyScore * 0.10;
+    safetyScore * 0.05;
 
   return {
     score: parseFloat(composite.toFixed(4)),
@@ -193,6 +223,7 @@ function computeTrustScore(entity, graph, pagerankScores, safetyResult) {
       pagerank: parseFloat(pagerank.toFixed(4)),
       observation_density: parseFloat(observationScore.toFixed(4)),
       age_factor: parseFloat(ageScore.toFixed(4)),
+      wallet_activity: parseFloat(walletScore.toFixed(4)),
       attestation_factor: parseFloat(attestationScore.toFixed(4)),
       relation_factor: parseFloat(relationScore.toFixed(4)),
       safety_factor: parseFloat(safetyScore.toFixed(4)),
